@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="A glowing deep-sea snake game: eat plankton, dive through ocean zones, swim through the edges.">
+<title>Deep Sea Serpent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;800&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one column console — title bar, depth HUD, square sea-floor board, touch pad. Single deliberate dark look (deep ocean). */
+:root {
+  color-scheme: dark;
+  --abyss: #06121f;
+  --panel: #0c2133;
+  --line: #1c3a52;
+  --ink: #e2f5ff;
+  --muted: #84a7c0;
+  --glow: #5ef2d6;
+  --pearl: #ffd97a;
+  --coral: #ff7a90;
+  --font-display: 'Unbounded', 'Arial Black', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+html, body { height: 100%; }
+* { box-sizing: border-box; }
+body {
+  background: radial-gradient(120% 80% at 50% 0%, #0b2a44 0%, var(--abyss) 60%) fixed, var(--abyss);
+  color: var(--ink);
+  margin: 0;
+  font-family: var(--font-mono);
+  min-height: 100%;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 14px;
+  display: flex;
+  justify-content: center;
+}
+.app { width: 100%; max-width: 620px; display: flex; flex-direction: column; gap: 10px; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 {
+  font-family: var(--font-display); font-weight: 800; font-size: clamp(18px, 4.6vw, 26px);
+  margin: 0; letter-spacing: -0.01em; text-wrap: balance;
+  background: linear-gradient(90deg, var(--glow), #8fb8ff 60%, var(--coral));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.tools { display: flex; gap: 8px; }
+button {
+  font: 600 12px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 9px 12px; cursor: pointer;
+}
+button:hover { border-color: var(--glow); }
+button:focus-visible { outline: 2px solid var(--glow); outline-offset: 2px; }
+.hud { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.stat { background: color-mix(in srgb, var(--panel) 80%, transparent); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lbl { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.val { font-family: var(--font-display); font-weight: 500; font-size: clamp(14px, 3.6vw, 19px); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.val.bump { animation: bump .35s ease-out; }
+@keyframes bump { 0% { transform: scale(1.25); color: var(--glow); } 100% { transform: scale(1); } }
+.zone-row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+#zoneName { color: var(--ink); font-weight: 600; letter-spacing: 0.04em; }
+.pips { display: flex; gap: 4px; flex: 1; min-width: 120px; }
+.pips span { flex: 1; height: 6px; border-radius: 3px; background: var(--line); transition: background .25s, box-shadow .25s; }
+.pips span.on { background: var(--glow); box-shadow: 0 0 8px var(--glow); }
+.stage {
+  position: relative; align-self: center;
+  width: min(100%, max(280px, calc(100dvh - 250px)));
+  aspect-ratio: 1; max-width: 100%;
+  border-radius: 16px; overflow: hidden;
+  border: 1px solid var(--line);
+  box-shadow: 0 0 0 1px #000 inset, 0 20px 60px -20px #000, 0 0 40px -10px color-mix(in srgb, var(--glow) 35%, transparent);
+  touch-action: none; user-select: none; -webkit-user-select: none;
+}
+canvas { display: block; width: 100%; height: 100%; }
+.overlay {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; text-align: center; padding: 24px;
+  background: color-mix(in srgb, var(--abyss) 55%, transparent);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+}
+.overlay h2 { font-family: var(--font-display); font-weight: 800; font-size: clamp(22px, 6vw, 34px); margin: 0; text-wrap: balance; }
+.overlay p { margin: 0; max-width: 34ch; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.overlay .big { font-family: var(--font-display); font-size: clamp(30px, 9vw, 48px); color: var(--pearl); font-variant-numeric: tabular-nums; text-shadow: 0 0 18px color-mix(in srgb, var(--pearl) 60%, transparent); }
+.overlay .go { background: var(--glow); color: #022a26; border-color: var(--glow); padding: 12px 20px; font-size: 13px; box-shadow: 0 0 24px -4px var(--glow); }
+.banner {
+  position: absolute; left: 0; right: 0; top: 34%; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  pointer-events: none; opacity: 0;
+}
+.banner .b1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(26px, 8vw, 44px); letter-spacing: 0.02em; color: #fff; text-shadow: 0 0 24px var(--glow), 0 0 4px var(--glow); }
+.banner .b2 { font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink); }
+.banner.show { animation: banner 1.9s ease-out; }
+@keyframes banner {
+  0% { opacity: 0; transform: scale(1.6); filter: blur(6px); }
+  15% { opacity: 1; transform: scale(1); filter: blur(0); }
+  75% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-24px); }
+}
+.pad { display: none; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(2, 48px); gap: 6px; justify-content: center; }
+.pad button { font-size: 18px; padding: 0; }
+.pad [data-d="up"] { grid-column: 2; grid-row: 1; }
+.pad [data-d="left"] { grid-column: 1; grid-row: 2; }
+.pad [data-d="down"] { grid-column: 2; grid-row: 2; }
+.pad [data-d="right"] { grid-column: 3; grid-row: 2; }
+@media (pointer: coarse) { .pad { display: grid; } .help .keys { display: none; } }
+.help { margin: 0; font-size: 12px; color: var(--muted); text-align: center; line-height: 1.6; }
+.help b { color: var(--pearl); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .banner.show { animation-duration: 1.2s; } .val.bump { animation: none; } }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <h1>Deep Sea Serpent</h1>
+    <div class="tools">
+      <button id="soundBtn" type="button">Sound on</button>
+      <button id="pauseBtn" type="button">Pause</button>
+    </div>
+  </header>
+
+  <div class="hud">
+    <div class="stat"><span class="lbl">Score</span><span class="val" id="score">0</span></div>
+    <div class="stat"><span class="lbl">Level</span><span class="val" id="level">1</span></div>
+    <div class="stat"><span class="lbl">Depth</span><span class="val" id="depth">50 m</span></div>
+    <div class="stat"><span class="lbl">Best</span><span class="val" id="best">0</span></div>
+  </div>
+
+  <div class="zone-row">
+    <span id="zoneName">Sunlight Zone</span>
+    <div class="pips" id="pips"><span></span><span></span><span></span><span></span><span></span></div>
+    <span>to next level</span>
+  </div>
+
+  <div class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div class="banner" id="banner"><span class="b1" id="b1">Level 2</span><span class="b2" id="b2">Twilight Zone · 200 m</span></div>
+    <div class="overlay" id="overlay">
+      <h2 id="ovTitle">Ready to dive</h2>
+      <div class="big" id="ovScore" hidden>0</div>
+      <p id="ovText">Eat glowing plankton to grow. Swim off any edge to come out the other side. Every 5 you eat takes you one level deeper, with new colours and slightly faster water.</p>
+      <button class="go" id="goBtn" type="button">Start dive</button>
+    </div>
+  </div>
+
+  <div class="pad" id="pad">
+    <button type="button" data-d="up" aria-label="Up">▲</button>
+    <button type="button" data-d="left" aria-label="Left">◀</button>
+    <button type="button" data-d="down" aria-label="Down">▼</button>
+    <button type="button" data-d="right" aria-label="Right">▶</button>
+  </div>
+
+  <p class="help"><span class="keys">Arrow keys or WASD to steer · Space to pause · </span>Swipe on the board works too · Edges wrap around · <b>Golden pearls</b> are worth 5×</p>
+</div>
+
+<script>
+(() => {
+  const N = 22;
+  const ZONES = [
+    { name: 'Sunlight Zone',   depth: 50,    top: '#0f5279', bot: '#062033', a: 165, b: 205 },
+    { name: 'Twilight Zone',   depth: 200,   top: '#0d3363', bot: '#06142a', a: 195, b: 255 },
+    { name: 'Midnight Zone',   depth: 1000,  top: '#1b1550', bot: '#070720', a: 255, b: 310 },
+    { name: 'Abyssal Zone',    depth: 4000,  top: '#2a0d3d', bot: '#0b0616', a: 300, b: 350 },
+    { name: 'Hadal Zone',      depth: 6000,  top: '#33101c', bot: '#0d0508', a: 15,  b: 50  },
+    { name: 'Challenger Deep', depth: 10935, top: '#0a0a14', bot: '#020204', a: 0,   b: 360, rainbow: true },
+  ];
+  const PER_LEVEL = 5;
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const $ = id => document.getElementById(id);
+  const cv = $('cv'), ctx = cv.getContext('2d'), stage = $('stage');
+  const el = { score: $('score'), level: $('level'), depth: $('depth'), best: $('best'), zone: $('zoneName'),
+    pips: [...$('pips').children], overlay: $('overlay'), ovTitle: $('ovTitle'), ovScore: $('ovScore'),
+    ovText: $('ovText'), go: $('goBtn'), banner: $('banner'), b1: $('b1'), b2: $('b2'),
+    pause: $('pauseBtn'), sound: $('soundBtn') };
+
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+
+  let best = store.get('dss-best', 0);
+  let soundOn = store.get('dss-sound', true);
+
+  // ---------- state ----------
+  let snake, prev, dir, queue, food, pearl, rocks, score, level, eaten, state = 'ready', step, acc = 0, gt = 0;
+  let particles = [], rings = [], shake = 0, flash = 0, snakeVisible = true;
+  let size = 0, cell = 0, dpr = 1;
+  const bg = { top: hex('#0f5279'), bot: hex('#062033') };
+  const snow = Array.from({ length: 70 }, () => ({ x: Math.random() * N, y: Math.random() * N, r: Math.random() * 0.08 + 0.02, s: Math.random() * 0.25 + 0.05, p: Math.random() * 6.28 }));
+
+  const zoneFor = l => ZONES[Math.min(l - 1, ZONES.length - 1)];
+  const speedFor = l => Math.max(80, 155 - (l - 1) * 7);
+  const rand = n => Math.floor(Math.random() * n);
+
+  function reset() {
+    snake = [{ x: 7, y: 11 }, { x: 6, y: 11 }, { x: 5, y: 11 }, { x: 4, y: 11 }];
+    prev = snake.map(s => ({ ...s }));
+    dir = { x: 1, y: 0 }; queue = []; rocks = []; pearl = null; food = null;
+    score = 0; level = 1; eaten = 0; step = speedFor(1); acc = 0; gt = 0;
+    snakeVisible = true; particles = []; rings = [];
+    food = spawn();
+    updateHud(true);
+  }
+
+  function occupied(x, y) {
+    return snake.some(s => s.x === x && s.y === y) || rocks.some(r => r.x === x && r.y === y) ||
+      (food && food.x === x && food.y === y) || (pearl && pearl.x === x && pearl.y === y);
+  }
+  function spawn(extra) {
+    for (let i = 0; i < 2000; i++) {
+      const x = rand(N), y = rand(N);
+      if (occupied(x, y)) continue;
+      if (extra && !extra(x, y)) continue;
+      return { x, y, born: gt };
+    }
+    return null;
+  }
+
+  // ---------- game tick ----------
+  function tick() {
+    while (queue.length) {
+      const d = queue.shift();
+      if (d.x !== -dir.x || d.y !== -dir.y) { dir = d; break; }
+    }
+    const old = snake.map(s => ({ ...s }));
+    // edges wrap: leaving one side brings you back in on the other
+    const head = { x: (snake[0].x + dir.x + N) % N, y: (snake[0].y + dir.y + N) % N };
+    const eatF = food && head.x === food.x && head.y === food.y;
+    const eatP = pearl && head.x === pearl.x && head.y === pearl.y;
+    const grow = eatF || eatP;
+    const body = grow ? snake : snake.slice(0, -1);
+    if (rocks.some(r => r.x === head.x && r.y === head.y) ||
+        body.some(s => s.x === head.x && s.y === head.y)) {
+      prev = old;
+      return die();
+    }
+    snake.unshift(head);
+    prev = old;
+    if (grow) prev.push({ ...old[old.length - 1] }); else snake.pop();
+
+    if (eatF) {
+      score += 10 * level; eaten++;
+      const h = foodHue();
+      burst(food.x + .5, food.y + .5, 22, h, 0.9);
+      rings.push({ x: food.x + .5, y: food.y + .5, r: .3, max: 2.2, life: 1, hue: h, w: .12 });
+      sfx('eat');
+      food = spawn();
+      if (!pearl && Math.random() < 0.28) { pearl = spawn(); if (pearl) pearl.life = 10000; }
+      if (eaten % PER_LEVEL === 0) levelUp(); else updateHud();
+    } else if (eatP) {
+      score += 50 * level;
+      burst(pearl.x + .5, pearl.y + .5, 40, 45, 1.3, 85);
+      rings.push({ x: pearl.x + .5, y: pearl.y + .5, r: .3, max: 3.5, life: 1, hue: 45, w: .18 });
+      flash = Math.max(flash, .18);
+      sfx('pearl');
+      pearl = null;
+      updateHud();
+    }
+  }
+
+  function levelUp() {
+    level++;
+    step = speedFor(level);
+    const z = zoneFor(level);
+    if (level >= 4 && rocks.length < 6) {
+      const h = snake[0];
+      const r = spawn((x, y) => Math.abs(x - h.x) + Math.abs(y - h.y) > 6 && x !== h.x && y !== h.y);
+      if (r) { r.pop = 0; rocks.push(r); }
+    }
+    const h = snake[0];
+    for (let i = 0; i < 3; i++) rings.push({ x: h.x + .5, y: h.y + .5, r: .2 + i * .9, max: N * 1.1, life: 1, hue: z.a, w: .3 - i * .08, speed: 22 });
+    burst(h.x + .5, h.y + .5, 70, z.a, 1.8);
+    flash = .45; shake = Math.max(shake, 6);
+    el.b1.textContent = `Level ${level}`;
+    el.b2.textContent = `${z.name} · ${z.depth.toLocaleString()} m`;
+    el.banner.classList.remove('show'); void el.banner.offsetWidth; el.banner.classList.add('show');
+    sfx('level');
+    updateHud();
+    bump(el.level); bump(el.depth);
+  }
+
+  function die() {
+    state = 'over';
+    shake = 16; flash = .35;
+    snake.forEach((s, i) => burst(s.x + .5, s.y + .5, 8, segHue(i, snake.length), 1.4));
+    snakeVisible = false;
+    sfx('die');
+    const newBest = score > best;
+    if (newBest) { best = score; store.set('dss-best', best); }
+    updateHud();
+    setTimeout(() => showOverlay('over', newBest), 750);
+  }
+
+  // ---------- effects ----------
+  function burst(x, y, n, hue, power = 1, light = 65) {
+    if (reduceMotion) n = Math.ceil(n / 3);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, sp = (Math.random() * 6 + 2) * power;
+      particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, decay: Math.random() * 1.2 + 0.9,
+        r: Math.random() * .12 + .05, hue: hue + (Math.random() * 30 - 15), light });
+    }
+  }
+  function bump(node) { node.classList.remove('bump'); void node.offsetWidth; node.classList.add('bump'); }
+
+  function segHue(i, len) {
+    const z = zoneFor(level);
+    const t = len > 1 ? i / (len - 1) : 0;
+    let h = z.a + (z.b - z.a) * t;
+    if (z.rainbow) h = (h * 0.6 + performance.now() * 0.08) % 360;
+    return h;
+  }
+  function foodHue() { const z = zoneFor(level); return z.rainbow ? (performance.now() * 0.08 + 180) % 360 : (z.a + 150) % 360; }
+
+  // ---------- HUD / overlay ----------
+  function updateHud(silent) {
+    const z = zoneFor(level);
+    if (!silent && el.score.textContent !== String(score)) bump(el.score);
+    el.score.textContent = score.toLocaleString();
+    el.level.textContent = level;
+    el.depth.textContent = z.depth.toLocaleString() + ' m';
+    el.best.textContent = best.toLocaleString();
+    el.zone.textContent = z.name;
+    const filled = eaten % PER_LEVEL;
+    el.pips.forEach((p, i) => p.classList.toggle('on', i < filled));
+  }
+
+  function showOverlay(kind, newBest) {
+    el.overlay.hidden = false;
+    if (kind === 'paused') {
+      el.ovTitle.textContent = 'Paused';
+      el.ovScore.hidden = true;
+      el.ovText.textContent = `Level ${level}, ${zoneFor(level).name}. Press Space or tap Resume.`;
+      el.go.textContent = 'Resume';
+    } else if (kind === 'over') {
+      const z = zoneFor(level);
+      el.ovTitle.textContent = `Lost at ${z.depth.toLocaleString()} m`;
+      el.ovScore.hidden = false;
+      el.ovScore.textContent = score.toLocaleString();
+      el.ovText.textContent = newBest ? `New best! You reached level ${level} in the ${z.name}.` : `You reached level ${level} in the ${z.name}. Best: ${best.toLocaleString()}.`;
+      el.go.textContent = 'Dive again';
+    } else {
+      el.ovTitle.textContent = 'Ready to dive';
+      el.ovScore.hidden = true;
+      el.go.textContent = 'Start dive';
+    }
+    el.pause.textContent = kind === 'paused' ? 'Resume' : 'Pause';
+    el.go.focus({ preventScroll: true });
+  }
+
+  function start() {
+    unlockAudio();
+    if (state === 'over') reset();
+    state = 'play'; acc = 0;
+    el.overlay.hidden = true;
+    el.pause.textContent = 'Pause';
+  }
+  function togglePause() {
+    if (state === 'play') { state = 'paused'; showOverlay('paused'); }
+    else if (state === 'paused') start();
+    else start();
+  }
+
+  // ---------- input ----------
+  const DIRS = { up: { x: 0, y: -1 }, down: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
+  const KEYMAP = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right', W: 'up', S: 'down', A: 'left', D: 'right' };
+  function steer(name) {
+    const d = DIRS[name];
+    if (state === 'ready' || state === 'over') start();
+    else if (state === 'paused') start();
+    const last = queue.length ? queue[queue.length - 1] : dir;
+    if ((d.x === last.x && d.y === last.y) || (d.x === -last.x && d.y === -last.y)) return;
+    if (queue.length < 3) queue.push(d);
+  }
+  addEventListener('keydown', e => {
+    if (KEYMAP[e.key]) { e.preventDefault(); steer(KEYMAP[e.key]); return; }
+    if (e.key === ' ' || e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
+      if (e.target.tagName === 'BUTTON' && e.key === ' ') return; // let the button click itself
+      e.preventDefault(); togglePause();
+    } else if (e.key === 'Enter' && state !== 'play' && e.target.tagName !== 'BUTTON') start();
+  });
+  el.go.addEventListener('click', start);
+  el.pause.addEventListener('click', togglePause);
+  el.sound.addEventListener('click', () => { soundOn = !soundOn; store.set('dss-sound', soundOn); el.sound.textContent = soundOn ? 'Sound on' : 'Sound off'; unlockAudio(); });
+  el.sound.textContent = soundOn ? 'Sound on' : 'Sound off';
+  document.querySelectorAll('.pad button').forEach(b => b.addEventListener('pointerdown', e => { e.preventDefault(); steer(b.dataset.d); }));
+
+  let touch = null;
+  stage.addEventListener('pointerdown', e => { if (e.target === cv) touch = { x: e.clientX, y: e.clientY }; });
+  stage.addEventListener('pointerup', e => {
+    if (!touch) return;
+    const dx = e.clientX - touch.x, dy = e.clientY - touch.y; touch = null;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 22) return;
+    steer(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+  });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') togglePause(); });
+
+  // ---------- audio ----------
+  let ac = null;
+  function unlockAudio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch { ac = null; } } if (ac && ac.state === 'suspended') ac.resume(); }
+  function tone(f1, f2, dur, type = 'sine', vol = 0.08, delay = 0) {
+    if (!ac || !soundOn) return;
+    const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f1, t); o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sfx(kind) {
+    if (kind === 'eat') tone(520 + level * 20, 880 + level * 30, 0.12, 'triangle');
+    if (kind === 'pearl') { tone(880, 1320, 0.12, 'sine', 0.09); tone(1320, 1760, 0.16, 'sine', 0.08, 0.08); }
+    if (kind === 'level') [392, 494, 587, 784].forEach((f, i) => tone(f, f * 1.01, 0.22, 'triangle', 0.08, i * 0.08));
+    if (kind === 'die') tone(320, 50, 0.6, 'sawtooth', 0.07);
+  }
+
+  // ---------- rendering ----------
+  function resize() {
+    const r = stage.getBoundingClientRect();
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    size = r.width;
+    cv.width = Math.round(size * dpr); cv.height = Math.round(size * dpr);
+    cell = size / N;
+  }
+  new ResizeObserver(resize).observe(stage);
+
+  function hex(h) { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+  const rgb = c => `rgb(${c.map(Math.round).join(',')})`;
+
+  function update(dt) {
+    const k = 1 - Math.exp(-dt / 500);
+    const z = zoneFor(level ?? 1), tt = hex(z.top), tb = hex(z.bot);
+    for (let i = 0; i < 3; i++) { bg.top[i] += (tt[i] - bg.top[i]) * k; bg.bot[i] += (tb[i] - bg.bot[i]) * k; }
+    const s = dt / 1000;
+    for (const p of particles) { p.x += p.vx * s; p.y += p.vy * s; p.vx *= 0.94; p.vy *= 0.94; p.life -= p.decay * s; }
+    particles = particles.filter(p => p.life > 0);
+    for (const r of rings) { r.r += (r.speed || 6) * s; r.life -= s * (r.speed ? 0.9 : 2.2); }
+    rings = rings.filter(r => r.life > 0 && r.r < r.max);
+    for (const f of snow) { f.y += f.s * s; f.p += s; if (f.y > N) { f.y = -0.2; f.x = Math.random() * N; } }
+    for (const r of rocks) r.pop = Math.min(1, (r.pop || 0) + s * 2.5);
+    shake *= Math.pow(0.002, s); if (shake < 0.1) shake = 0;
+    flash = Math.max(0, flash - s * 1.4);
+    if (state === 'play' && pearl && gt - pearl.born > pearl.life) { burst(pearl.x + .5, pearl.y + .5, 10, 45, .5, 75); pearl = null; }
+  }
+
+  function glowDot(x, y, r, color, blur) {
+    ctx.shadowColor = color; ctx.shadowBlur = blur;
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function render(now) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const g = ctx.createLinearGradient(0, 0, 0, size);
+    g.addColorStop(0, rgb(bg.top)); g.addColorStop(1, rgb(bg.bot));
+    ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
+
+    // light rays shimmer near the surface
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const rayA = Math.max(0, 0.06 - (level - 1) * 0.015);
+    if (rayA > 0) for (let i = 0; i < 4; i++) {
+      const x = size * (0.15 + i * 0.25) + Math.sin(now / 1800 + i) * size * 0.05;
+      const rg = ctx.createLinearGradient(0, 0, 0, size * .9);
+      rg.addColorStop(0, `rgba(180,240,255,${rayA})`); rg.addColorStop(1, 'rgba(180,240,255,0)');
+      ctx.fillStyle = rg;
+      ctx.beginPath(); ctx.moveTo(x - cell, 0); ctx.lineTo(x + cell * 1.4, 0); ctx.lineTo(x + cell * 4, size); ctx.lineTo(x - cell * 2, size); ctx.fill();
+    }
+    ctx.restore();
+
+    const sx = shake && !reduceMotion ? (Math.random() - .5) * shake : 0, sy = shake && !reduceMotion ? (Math.random() - .5) * shake : 0;
+    ctx.save(); ctx.translate(sx, sy);
+
+    // grid dots
+    ctx.fillStyle = 'rgba(200,235,255,0.07)';
+    for (let y = 1; y < N; y++) for (let x = 1; x < N; x++) ctx.fillRect(x * cell - .75, y * cell - .75, 1.5, 1.5);
+
+    // marine snow
+    for (const f of snow) {
+      ctx.fillStyle = `rgba(220,240,255,${0.18 + Math.sin(f.p * 2) * 0.08})`;
+      ctx.beginPath(); ctx.arc((f.x + Math.sin(f.p) * 0.3) * cell, f.y * cell, f.r * cell, 0, 6.283); ctx.fill();
+    }
+
+    // reefs
+    for (const r of rocks) {
+      const p = easeOutBack(r.pop || 0), cx = (r.x + .5) * cell, cy = (r.y + .5) * cell, s = cell * .44 * p;
+      ctx.shadowColor = '#ff7a90'; ctx.shadowBlur = cell * .5;
+      ctx.fillStyle = '#5a2232';
+      roundRect(cx - s, cy - s, s * 2, s * 2, s * .45); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#ff7a90'; ctx.lineWidth = Math.max(1, cell * .07); ctx.stroke();
+      ctx.fillStyle = '#ffb3c0';
+      ctx.beginPath(); ctx.arc(cx - s * .3, cy - s * .25, s * .18, 0, 6.283); ctx.arc(cx + s * .35, cy + s * .2, s * .13, 0, 6.283); ctx.fill();
+    }
+
+    ctx.globalCompositeOperation = 'lighter';
+
+    // food (plankton)
+    if (food) {
+      const fh = foodHue(), pulse = 1 + Math.sin(now / 180) * .12;
+      const cx = (food.x + .5) * cell, cy = (food.y + .5) * cell;
+      glowDot(cx, cy, cell * .26 * pulse, `hsl(${fh},95%,65%)`, cell * 1.1);
+      glowDot(cx, cy, cell * .11, `hsl(${fh},100%,90%)`, cell * .3);
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = `hsla(${fh},95%,70%,${0.35 + Math.sin(now / 180) * .15})`; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(cx, cy, cell * .45 * pulse, 0, 6.283); ctx.stroke();
+    }
+
+    // golden pearl with fading timer ring
+    if (pearl) {
+      const left = state === 'play' || state === 'paused' ? 1 - (gt - pearl.born) / pearl.life : 1;
+      const cx = (pearl.x + .5) * cell, cy = (pearl.y + .5) * cell;
+      const blink = left < .3 ? (Math.sin(now / 60) > 0 ? 1 : .35) : 1;
+      ctx.globalAlpha = blink;
+      glowDot(cx, cy, cell * .32, '#ffd97a', cell * 1.4);
+      glowDot(cx - cell * .08, cy - cell * .08, cell * .1, '#fffbe8', cell * .2);
+      ctx.shadowBlur = 0; ctx.strokeStyle = '#ffd97a'; ctx.lineWidth = Math.max(1.5, cell * .08);
+      ctx.beginPath(); ctx.arc(cx, cy, cell * .55, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, left)); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // serpent
+    if (snakeVisible && snake) {
+      const t = state === 'play' ? Math.min(1, acc / step) : (state === 'over' ? 1 : 0);
+      const len = snake.length;
+      const pts = snake.map((s, i) => {
+        const p = prev[i] || s;
+        // take the short way across a wrapped edge, then fold back onto the board
+        const wrapD = d => d > 1 ? d - N : d < -1 ? d + N : d;
+        const fx = (p.x + wrapD(s.x - p.x) * t + N) % N, fy = (p.y + wrapD(s.y - p.y) * t + N) % N;
+        return { x: (fx + .5) * cell, y: (fy + .5) * cell };
+      });
+      const near = (a, b) => Math.abs(a.x - b.x) < cell * 1.5 && Math.abs(a.y - b.y) < cell * 1.5;
+      for (let i = len - 1; i >= 0; i--) {
+        const h = segHue(i, len), r = cell * (0.43 - 0.15 * (i / Math.max(1, len - 1)));
+        const color = `hsl(${h},90%,${i === 0 ? 68 : 56}%)`;
+        if (i < len - 1 && near(pts[i], pts[i + 1])) {
+          const a = pts[i], b = pts[i + 1];
+          glowDot((a.x + b.x) / 2, (a.y + b.y) / 2, r * .92, color, cell * .6);
+        }
+        glowDot(pts[i].x, pts[i].y, r, color, i === 0 ? cell * 1.2 : cell * .6);
+      }
+      ctx.shadowBlur = 0;
+      // light-organ spots along the body (bioluminescent photophores)
+      for (let i = 2; i < len; i += 3) {
+        const pulse = (Math.sin(now / 220 - i * .6) + 1) / 2;
+        ctx.fillStyle = `rgba(255,255,255,${0.25 + pulse * .55})`;
+        ctx.beginPath(); ctx.arc(pts[i].x, pts[i].y, cell * .07, 0, 6.283); ctx.fill();
+      }
+      // eyes
+      ctx.globalCompositeOperation = 'source-over';
+      const hd = pts[0], ex = dir.x, ey = dir.y, px = -ey, py = ex;
+      for (const sgn of [-1, 1]) {
+        const x = hd.x + ex * cell * .14 + px * cell * .18 * sgn, y = hd.y + ey * cell * .14 + py * cell * .18 * sgn;
+        ctx.fillStyle = '#f4fdff'; ctx.beginPath(); ctx.arc(x, y, cell * .1, 0, 6.283); ctx.fill();
+        ctx.fillStyle = '#04121c'; ctx.beginPath(); ctx.arc(x + ex * cell * .035, y + ey * cell * .035, cell * .05, 0, 6.283); ctx.fill();
+      }
+      ctx.globalCompositeOperation = 'lighter';
+    }
+
+    // shockwave rings
+    for (const r of rings) {
+      ctx.strokeStyle = `hsla(${r.hue},95%,70%,${r.life * .8})`;
+      ctx.lineWidth = Math.max(1, r.w * cell * r.life);
+      ctx.beginPath(); ctx.arc(r.x * cell, r.y * cell, r.r * cell, 0, 6.283); ctx.stroke();
+    }
+    // particles
+    for (const p of particles) {
+      ctx.fillStyle = `hsla(${p.hue},95%,${p.light}%,${p.life})`;
+      ctx.beginPath(); ctx.arc(p.x * cell, p.y * cell, p.r * cell * (0.5 + p.life * .5), 0, 6.283); ctx.fill();
+    }
+    ctx.restore();
+
+    // vignette + flash
+    const vg = ctx.createRadialGradient(size / 2, size / 2, size * .35, size / 2, size / 2, size * .75);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.5)');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, size, size);
+    if (flash > 0 && !reduceMotion) { ctx.fillStyle = `rgba(220,250,255,${flash})`; ctx.fillRect(0, 0, size, size); }
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function easeOutBack(t) { const c = 1.7; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); }
+
+  // ---------- loop ----------
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(50, now - last); last = now;
+    if (state === 'play') {
+      gt += dt; acc += dt;
+      while (acc >= step && state === 'play') { acc -= step; tick(); }
+    }
+    update(dt);
+    if (size > 0) render(now);
+    requestAnimationFrame(frame);
+  }
+
+  reset();
+  resize();
+  showOverlay('ready');
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
